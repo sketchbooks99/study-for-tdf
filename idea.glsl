@@ -65,6 +65,23 @@ vec2 foldRotate(vec2 p, float s) {
     return p;
 }
 
+float terrain(vec2 p) {
+    p *= 0.2;
+    float height = 0.0;
+    float amp = 1.0;
+    for(int i=0; i < 10; i++) {
+        height += amp * sin(p.x) * sin(p.y);
+        amp *= 0.5;
+        p *= 2.07;
+    }
+
+    return height * 5.0;
+}
+
+float dist_floor(vec3 p){
+    return dot(p, vec3(0., abs(sin(p.x) * sin(p.z)), 0.0)) + .1;
+}
+
 float box(vec3 p, float size) {
     vec3 q = abs(p);
     return length(max(q - vec3(size), 0.0));
@@ -78,18 +95,18 @@ float bar_dist(vec2 p, float width) {
     return length(max(abs(p) - width, 0.0));
 }
 
-float three_tube(vec3 p, float size) {
-    float tube_x = tube_dist(p.yz, size);
-    float tube_y = tube_dist(p.xz, size);
-    float tube_z = tube_dist(p.xy, size);
+float three_tube(vec3 p) {
+    float tube_x = tube_dist(p.yz, 0.025);
+    float tube_y = tube_dist(p.xz, 0.025);
+    float tube_z = tube_dist(p.xy, 0.025);
 
     return min(min(tube_x, tube_y), tube_z);
 }
 
-float three_bar(vec3 p, float size) {
-    float bar_x = bar_dist(p.yz, size);
-    float bar_y = bar_dist(p.xz, size);
-    float bar_z = bar_dist(p.xy, size);
+float three_bar(vec3 p) {
+    float bar_x = bar_dist(p.yz, 0.1);
+    float bar_y = bar_dist(p.xz, 0.1);
+    float bar_z = bar_dist(p.xy, 0.1);
     
     return min(min(bar_x, bar_y), bar_z);
 }
@@ -113,24 +130,9 @@ vec3 blinn_phong(vec3 normal, vec3 light_dir, vec3 cam_dir, vec3 col) {
 }
 
 Object distanceFunc(vec3 p) {
-    float sp = sphere(p, .3);
-    vec3 bx_p = rotate(p, time, vec3(0.1, 0.3, 0.7));
-    float bx = box(bx_p, 0.2);
-    vec3 q = p;
-    // q = twist(p, 0.1);
-    // q = rotate(q, time * 0.3, vec3(0.0, 0.0, 1.0));
-    // q.xy = foldRotate(q.xy, 2.);
-    // q -= vec3(0., 0., time * 3.0);
-    float back_scene = max(box(repeat(q, 2.), .8), three_bar(repeat(q, 2.), .3));
-    back_scene = min(back_scene, box(repeat(q, 2.), .5));
-    // back_scene = box(repeat(q, 1.), .3);
     Object obj;
-    obj.dist = min(bx, back_scene);
-    float d = length(q - vec3(0.0, 0.0, q.z * .5));
-    vec3 back_col = d * vec3(1.) * .5 - mod(q.z * 0.1 + time * 2.5, 2.0) * vec3(1.);
-    vec3 bx_col = vec3(0.1,.5, 0.6);
-    obj.color = bx < back_scene ? bx_col : back_col;
-    // obj.color -= wave;
+    obj.dist = dist_floor(p);
+    obj.color = vec3(1.0);
     return obj;
 }
 
@@ -143,37 +145,41 @@ vec3 getNormal(vec3 p) {
     ));
 }
 
+vec3 terrain_normal(vec3 p) {
+    float d = 0.001;
+    return normalize(vec3(
+        distanceFunc(p + vec3(d, 0.0, 0.0)).dist - distanceFunc(p + vec3(-d, 0.0, 0.0)).dist,
+        2.0 * d,
+        distanceFunc(p + vec3(0.0, 0.0, d)).dist - distanceFunc(p + vec3(0.0, 0.0, -d)).dist
+    ));
+}
+
 void main() {
     vec2 p = (gl_FragCoord.xy * 2.0 - resolution) / min(resolution.x, resolution.y);
 
-    vec2 m = mouse * 2.0 - 1.0;
-    // camera
-    vec3 cPos = vec3(0.0, 0.0, 1.0);
-    // vec3 cDir = vec3(0.0, 0.0, -1.0);
+    vec3 cPos = vec3(2., 1., 3.);
     vec3 cDir = normalize(-cPos);
     vec3 cUp = vec3(0.0, 1.0, 0.0);
     vec3 cSide = cross(cDir, cUp);
     float targetDepth = 1.0;
 
-    // ray
     vec3 ray = normalize(cSide * p.x + cUp * p.y + cDir * targetDepth);
 
-    // marching loop
     Object obj;
     float rLen = 0.0;
     vec3 rPos = cPos;
-    for(int i = 0; i < 64; i++) {
+    float t = 0.0;
+    float tmax = 100.0;
+    for(int i=0; i<128; i++) {
         obj = distanceFunc(rPos);
         rLen += obj.dist;
         rPos = cPos + ray * rLen;
     }
 
-    // hit check
     if(abs(obj.dist) < 0.001) {
         vec3 normal = getNormal(rPos);
-        vec3 shaded_col = blinn_phong(abs(normal), lightDir, -cDir, obj.color);
+        vec3 shaded_col = blinn_phong(normal, lightDir, -cDir, obj.color);
         gl_FragColor = vec4(shaded_col, 1.0);
-
     } else {
         gl_FragColor = vec4(0.0);
     }
