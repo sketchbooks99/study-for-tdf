@@ -1,5 +1,3 @@
-
-
 uniform float time;
 uniform vec2 resolution;
 uniform vec2 mouse;
@@ -127,8 +125,8 @@ Object distanceFunc(vec3 p) {
     Object obj;
     obj.dist = min(bx, back_scene);
     float d = length(q - vec3(0.0, 0.0, q.z));
-    vec3 back_col = d  * vec3(.3);
-    vec3 bx_col = vec3(0.3,.6, 0.2);
+    vec3 back_col = d  * vec3(.3) - mod(q.z * 0.1 + time * 3.0, 2.0) * vec3(1.0, 1.0, 1.0);
+    vec3 bx_col = vec3(0.1,.5, 0.6);
     obj.color = bx < back_scene ? bx_col : back_col;
     // obj.color -= wave;
     return obj;
