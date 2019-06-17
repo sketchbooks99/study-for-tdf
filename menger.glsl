@@ -11,36 +11,6 @@ struct Object {
 };
 
 const vec3 lightDir = normalize(vec3(0.577, 0.577, .577));
-
-vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
-
-float snoise(vec2 v){
-    const vec4 C = vec4(0.211324865405187, 0.366025403784439,
-            -0.577350269189626, 0.024390243902439);
-    vec2 i  = floor(v + dot(v, C.yy) );
-    vec2 x0 = v -   i + dot(i, C.xx);
-    vec2 i1;
-    i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-    vec4 x12 = x0.xyxy + C.xxzz;
-    x12.xy -= i1;
-    i = mod(i, 289.0);
-    vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 ))
-    + i.x + vec3(0.0, i1.x, 1.0 ));
-    vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy),
-        dot(x12.zw,x12.zw)), 0.0);
-    m = m*m ;
-    m = m*m ;
-    vec3 x = 2.0 * fract(p * C.www) - 1.0;
-    vec3 h = abs(x) - 0.5;
-    vec3 ox = floor(x + 0.5);
-    vec3 a0 = x - ox;
-    m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
-    vec3 g;
-    g.x  = a0.x  * x0.x  + h.x  * x0.y;
-    g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-    return 130.0 * dot(m, g);
-}
-
 vec3 repeat(vec3 p, float interval) {
     return mod(p, interval) - interval * 0.5;
 }
@@ -95,54 +65,55 @@ vec2 foldRotate(vec2 p, float s) {
     return p;
 }
 
-float terrain(vec2 p) {
-    p *= 0.2;
-    float height = 0.0;
-    float amp = 1.0;
-    for(int i=0; i < 10; i++) {
-        height += amp * sin(p.x) * sin(p.y);
-        amp *= 0.5;
-        p *= 2.07;
+float maxcomp(vec3 p) {
+    float m1 = max(p.x, p.y);
+    return max(m1, p.z);
+}
+
+vec2 obj_floor(in vec3 p)
+{
+  return vec2(p.y+10.0,0);
+}
+
+vec2 obj_box_s(vec3 p, vec3 b) {
+    vec3 di = abs(p) - b;
+    float mc = maxcomp(di);
+    float d = min(mc, length(max(di, 0.0)));
+    return vec2(d, 1.);
+}
+
+vec2 obj_box(vec3 p) {
+    vec3 b = vec3(4., 4., 4.);
+    return obj_box_s(p, b);
+}
+
+vec2 obj_cross(in vec3 p) {
+    float inf = 100.;
+    vec2 da = obj_box_s(p.xyz, vec3(inf, 2.0, 2.0));
+    vec2 db = obj_box_s(p.xyz, vec3(2.0, inf, 2.0));
+    vec2 dc = obj_box_s(p.xyz, vec3(2.0, 2.0, inf));
+    return vec2(min(da.x, min(db.x, dc.x)), 1.);
+}
+
+vec2 obj_menger_simple(in vec3 p) {
+    vec2 d1 = obj_box(p);
+    vec2 d2 = obj_cross(p / 3.);
+    float d = max(d1.x, -d2.x);
+    return vec2(d, 1.0);
+}
+
+vec2 obj_menger(in vec3 p) {
+    vec2 d2 = obj_box(p);
+    float s = 1.0;
+    for(int m=0; m<3; m++) {
+        vec3 a = mod(p*s, 2.0) - 1.0;
+        s *= 3.;
+        vec3 r = 1. - 4. * abs(a);
+        vec2 c = obj_cross(r)/s;
+        d2.x = max(d2.x, c.x);
     }
 
-    return height * 3.0;
-}
-
-float dist_floor(vec3 p){
-    return dot(p, vec3(0., abs(sin(p.x) * sin(p.z)), 0.0));
-}
-
-float box(vec3 p, float size) {
-    vec3 q = abs(p);
-    return length(max(q - vec3(size), 0.0));
-}
-
-float tube_dist(vec2 p, float width) {
-    return length(p) - width;
-}
-
-float bar_dist(vec2 p, float width) {
-    return length(max(abs(p) - width, 0.0));
-}
-
-float three_tube(vec3 p) {
-    float tube_x = tube_dist(p.yz, 0.025);
-    float tube_y = tube_dist(p.xz, 0.025);
-    float tube_z = tube_dist(p.xy, 0.025);
-
-    return min(min(tube_x, tube_y), tube_z);
-}
-
-float three_bar(vec3 p) {
-    float bar_x = bar_dist(p.yz, 0.1);
-    float bar_y = bar_dist(p.xz, 0.1);
-    float bar_z = bar_dist(p.xy, 0.1);
-    
-    return min(min(bar_x, bar_y), bar_z);
-}
-
-float sphere(vec3 p, float size) {
-    return length(p) - size;
+    return d2;
 }
 
 // normalized blinn-phong shading
@@ -160,12 +131,17 @@ vec3 blinn_phong(vec3 normal, vec3 light_dir, vec3 cam_dir, vec3 col) {
 }
 
 Object distanceFunc(vec3 p) {
+    vec3 q = p;
+    // q.xy = foldRotate(q.xy, 5.0);
+    q += vec3(0.0, 0.0, -time);
+    q = repeat(q, 3.);
+    // q.xy = foldRotate(q.xy, 6.);
+    float dist = obj_menger(q).x;
+    vec3 col = vec3(1., 0., 0.);
     Object obj;
-    // obj.dist = dist_floor(p)
-    p -= vec3(time, 0.0, time);
-    float height = abs(terrain(p.xz));
-    obj.dist = dot(p, vec3(0.0, height, 0.0)) - .5;
-    obj.color = vec3(.5);
+    obj.dist = dist;
+    float d = length(q - vec3(0.0, 0.0, q.z));
+    obj.color = col * d * .5 + mod(-q.z * 2.0, 2.0) * 0.2;
     return obj;
 }
 
@@ -178,43 +154,32 @@ vec3 getNormal(vec3 p) {
     ));
 }
 
-vec3 terrain_normal(vec3 p) {
-    float d = 0.02;
-    return normalize(vec3(
-        distanceFunc(p + vec3(d, 0.0, 0.0)).dist - distanceFunc(p + vec3(-d, 0.0, 0.0)).dist,
-        2.0 * d,
-        distanceFunc(p + vec3(0.0, 0.0, d)).dist - distanceFunc(p + vec3(0.0, 0.0, -d)).dist
-    ));
-}
-
 void main() {
     vec2 p = (gl_FragCoord.xy * 2.0 - resolution) / min(resolution.x, resolution.y);
 
-    vec3 cPos = vec3(1., 2.0, 1.);
-    vec3 cDir = normalize(vec3(-1., 0., -1.));
+    vec3 cPos = vec3(0.0, 0.0, 10.0);
+    vec3 cDir = normalize(-cPos);
     vec3 cUp = vec3(0.0, 1.0, 0.0);
     vec3 cSide = cross(cDir, cUp);
     float targetDepth = 1.0;
-
+    
     vec3 ray = normalize(cSide * p.x + cUp * p.y + cDir * targetDepth);
 
-    Object obj;
     float rLen = 0.0;
     vec3 rPos = cPos;
-    float t = 0.0;
-    float tmax = 100.0;
+    Object obj;
+    obj.dist = 0.0;
     for(int i=0; i<128; i++) {
         obj = distanceFunc(rPos);
         rLen += obj.dist;
         rPos = cPos + ray * rLen;
     }
-
-    if(abs(obj.dist) < 0.001) {
-        vec3 normal = terrain_normal(rPos);
-        vec3 shaded_col = blinn_phong(normal, lightDir, -cDir, obj.color);
+    
+    if(obj.dist < 0.001) {
+        vec3 normal = getNormal(rPos);
+        vec3 shaded_col = blinn_phong(abs(normal), lightDir, -cDir, obj.color);
         gl_FragColor = vec4(shaded_col, 1.0);
-        // gl_FragColor = vec4(normal, 1.0);
     } else {
-        gl_FragColor = vec4(0.0);
+        discard;
     }
 }
