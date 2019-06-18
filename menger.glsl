@@ -8,7 +8,37 @@ uniform vec2 mouse;
 struct Object {
     float dist;
     vec3 color;
+    vec3 edge;
 };
+
+vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
+
+float snoise(vec2 v){
+    const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+            -0.577350269189626, 0.024390243902439);
+    vec2 i  = floor(v + dot(v, C.yy) );
+    vec2 x0 = v -   i + dot(i, C.xx);
+    vec2 i1;
+    i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+    vec4 x12 = x0.xyxy + C.xxzz;
+    x12.xy -= i1;
+    i = mod(i, 289.0);
+    vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 ))
+    + i.x + vec3(0.0, i1.x, 1.0 ));
+    vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy),
+        dot(x12.zw,x12.zw)), 0.0);
+    m = m*m ;
+    m = m*m ;
+    vec3 x = 2.0 * fract(p * C.www) - 1.0;
+    vec3 h = abs(x) - 0.5;
+    vec3 ox = floor(x + 0.5);
+    vec3 a0 = x - ox;
+    m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+    vec3 g;
+    g.x  = a0.x  * x0.x  + h.x  * x0.y;
+    g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+    return 130.0 * dot(m, g);
+}
 
 const vec3 lightDir = normalize(vec3(0.577, 0.577, .577));
 vec3 repeat(vec3 p, float interval) {
@@ -65,6 +95,11 @@ vec2 foldRotate(vec2 p, float s) {
     return p;
 }
 
+float box(vec3 p, float size) {
+    vec3 q = abs(p);
+    return length(max(q - vec3(size), 0.0)) - size * 0.15;
+}
+
 float maxcomp(vec3 p) {
     float m1 = max(p.x, p.y);
     return max(m1, p.z);
@@ -119,7 +154,7 @@ vec2 obj_menger(in vec3 p) {
 
 // normalized blinn-phong shading
 vec3 blinn_phong(vec3 normal, vec3 light_dir, vec3 cam_dir, vec3 col) {
-    float m = 150.0;
+    float m = 30.0;
     float norm_factor = (m + 2.0) / (TWO_PI);
 	
     vec3 ambient = col * 0.1;
@@ -127,22 +162,72 @@ vec3 blinn_phong(vec3 normal, vec3 light_dir, vec3 cam_dir, vec3 col) {
     vec3 halfLE = normalize(light_dir + cam_dir);
     float specular = norm_factor * pow(max(0.0, dot(normal, halfLE)), m);
 
-    vec3 out_col = ambient + diffuse * col + specular;
+    vec3 out_col = ambient + diffuse * col + specular * 0.8;
     return out_col;
 }
 
+// Bechman分布
+float BechmanDistribution(float d, float m) {
+    float d2 = d * d;
+    float m2 = m * m;
+    return exp((d2 - 1.0) / (d2 * m2)) / (m2 * d2 * d2);
+}
+
+float Fresnel(float c, float f0) {
+    float sf = sqrt(f0);
+    float n = (1.0 + sf) / (1.0 - sf);
+    float g = sqrt(n * n + c * c - 1.0);
+    float ga = (c * (g + c) - 1.0) * (c * (g + c) - 1.0);
+    float gb = (c * (g - c) + 1.0) * (c * (g - c) + 1.0);
+    return (g - c) * (g - c) / (2.0 * (g + c) + (g + c)) * (1.0 + ga / gb);
+}
+
+vec3 cook_torrance(vec3 normal, vec3 light_dir, vec3 cam_dir, vec3 col) {
+    vec3 specular_coh = vec3(1.0);
+    vec3 diffuse_coh = col;
+    float microfacet = 0.01; // 面の粗さ
+
+    vec3 l = normalize(light_dir);
+    vec3 n = normalize(normal);
+
+    vec3 v = normalize(cam_dir);
+    vec3 h = normalize(l + v);
+
+    float hn = dot(h, n);
+    float ln = dot(l, n);
+    float lh = dot(l, h);
+    float vn = dot(v, n);
+
+    vec3 f = vec3(Fresnel(lh, specular_coh.x), Fresnel(lh, specular_coh.y), Fresnel(lh, specular_coh.z));
+    float d = BechmanDistribution(hn, microfacet);
+    float t = 2.0 * hn / dot(v, h);
+    float g = min(1.0, min(t * vn, t * ln));
+    float m = PI * vn * ln;
+    vec3 spe = max(f * d * g / m, 0.0);
+    vec3 dif = max(ln, 0.0) * col;
+    vec3 amb = col * .3;
+
+    return amb + dif + spe;
+}
+
 Object distanceFunc(vec3 p) {
+    float bx = box(rotate(p, time, vec3(1., 0.75, .53)), .05);
     vec3 q = p;
     // q.xy = foldRotate(q.xy, 5.0);
-    q += vec3(0.0, 0.0, -time * .1);
-    q = repeat(q, 4.);
-    // q.xy = foldRotate(q.xy, 6.);
+    q -= vec3(0.0, time, 0.0);
+    q = repeat(q, 8.);
+    q.xy = foldRotate(q.xy, 2.);
     float dist = obj_menger(q).x;
-    vec3 col = vec3(0., 0., 0.);
+    float d = length(q - vec3(0.0, 0.0, 0.0));
+    vec3 col = vec3(1.) - mod(d + time, 3.0);
+    vec3 bx_col = vec3(1., 0., 0.);
     Object obj;
-    obj.dist = dist;
-    float d = length(q - vec3(0.0, 0.0, q.z));
-    obj.color = col * d * .1 + mod(-q.z * 2.0 - time * 2.0, 2.0) * 0.5;
+    obj.dist = min(bx, dist);
+    // vec3 out_col = col * d * .1 + mod(-q.z * 0.05 - time, 2.0) * 0.3;
+    vec3 out_col = col;
+    obj.color = bx < dist ? bx_col : out_col;
+    obj.edge = bx < dist ? bx_col : 1.0 - out_col;
+    // obj.color = col;
     return obj;
 }
 
@@ -158,11 +243,12 @@ vec3 getNormal(vec3 p) {
 void main() {
     vec2 p = (gl_FragCoord.xy * 2.0 - resolution) / min(resolution.x, resolution.y);
 
-    vec3 cPos = vec3(0.0, 0.0, 10.0);
+    float t = mod(time, 6.0);
+    vec3 cPos = vec3(sin(time * .3) * .25, .1, cos(time * .5) * .25);
     vec3 cDir = normalize(-cPos);
     vec3 cUp = vec3(0.0, 1.0, 0.0);
     vec3 cSide = cross(cDir, cUp);
-    float targetDepth = 1.0;
+    float targetDepth = .5;
     
     vec3 ray = normalize(cSide * p.x + cUp * p.y + cDir * targetDepth);
 
@@ -178,16 +264,16 @@ void main() {
     
     if(obj.dist < 0.001) {
         vec3 normal = getNormal(rPos);
-        float eps = 0.003;
+        float eps = 0.01;// + mod(-rPos.z * 0.05 - time * 2., 2.0) * .02;
         vec3 dif_x = getNormal(rPos + vec3(eps, 0.0, 0.0));
         vec3 dif_y = getNormal(rPos + vec3(0.0, eps, 0.0));
         vec3 dif_z = getNormal(rPos + vec3(0.0, 0.0, eps));
 
-        float max_dif = 0.999;
+        float max_dif = 0.9;
         if(abs(dot(normal, dif_x)) < max_dif ||
             abs(dot(normal, dif_y)) < max_dif || 
             abs(dot(normal, dif_z)) < max_dif) {
-                obj.color = vec3(1.0) - obj.color;
+                obj.color = obj.edge;
             }
         vec3 shaded_col = blinn_phong(abs(normal), lightDir, -cDir, obj.color);
         gl_FragColor = vec4(shaded_col, 1.0);
