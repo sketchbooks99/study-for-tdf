@@ -70,6 +70,7 @@ float maxcomp(vec3 p) {
     return max(m1, p.z);
 }
 
+
 vec2 obj_floor(in vec3 p)
 {
   return vec2(p.y+10.0,0);
@@ -133,15 +134,15 @@ vec3 blinn_phong(vec3 normal, vec3 light_dir, vec3 cam_dir, vec3 col) {
 Object distanceFunc(vec3 p) {
     vec3 q = p;
     // q.xy = foldRotate(q.xy, 5.0);
-    q += vec3(0.0, 0.0, -time);
-    q = repeat(q, 3.);
+    q += vec3(0.0, 0.0, -time * .1);
+    q = repeat(q, 4.);
     // q.xy = foldRotate(q.xy, 6.);
     float dist = obj_menger(q).x;
-    vec3 col = vec3(1., 0., 0.);
+    vec3 col = vec3(0., 0., 0.);
     Object obj;
     obj.dist = dist;
     float d = length(q - vec3(0.0, 0.0, q.z));
-    obj.color = col * d * .5 + mod(-q.z * 2.0, 2.0) * 0.2;
+    obj.color = col * d * .1 + mod(-q.z * 2.0 - time * 2.0, 2.0) * 0.5;
     return obj;
 }
 
@@ -177,6 +178,17 @@ void main() {
     
     if(obj.dist < 0.001) {
         vec3 normal = getNormal(rPos);
+        float eps = 0.003;
+        vec3 dif_x = getNormal(rPos + vec3(eps, 0.0, 0.0));
+        vec3 dif_y = getNormal(rPos + vec3(0.0, eps, 0.0));
+        vec3 dif_z = getNormal(rPos + vec3(0.0, 0.0, eps));
+
+        float max_dif = 0.999;
+        if(abs(dot(normal, dif_x)) < max_dif ||
+            abs(dot(normal, dif_y)) < max_dif || 
+            abs(dot(normal, dif_z)) < max_dif) {
+                obj.color = vec3(1.0) - obj.color;
+            }
         vec3 shaded_col = blinn_phong(abs(normal), lightDir, -cDir, obj.color);
         gl_FragColor = vec4(shaded_col, 1.0);
     } else {
