@@ -40,7 +40,7 @@ float snoise(vec2 v){
     return 130.0 * dot(m, g);
 }
 
-const vec3 lightDir = normalize(vec3(0.577, 0.577, .577));
+vec3 lightDir = normalize(vec3(0.577, 0.577, .577));
 vec3 repeat(vec3 p, float interval) {
     return mod(p, interval) - interval * 0.5;
 }
@@ -88,7 +88,7 @@ mat2 rotate(float a) {
 }
 
 vec2 foldRotate(vec2 p, float s) {
-    float a = PI / s - atan(p.x, p.y);
+    float a = PI / s - atan(p.y, p.x);
     float n = TWO_PI / s;
     a = float(a / n) * n;
     p *= rotate(a);
@@ -140,9 +140,9 @@ vec2 obj_menger_simple(in vec3 p) {
 
 vec2 obj_menger(in vec3 p) {
     vec2 d2 = obj_box(p);
-    float s = 1.0;
-    for(int m=0; m<3; m++) {
-        vec3 a = mod(p*s, 2.0) - 1.0;
+    float s = 1.2;
+    for(int m=0; m<4; m++) {
+        vec3 a = mod(p*s, 2.) - 1.;
         s *= 3.;
         vec3 r = 1. - 4. * abs(a);
         vec2 c = obj_cross(r)/s;
@@ -150,6 +150,25 @@ vec2 obj_menger(in vec3 p) {
     }
 
     return d2;
+}
+
+float menger(vec3 z0, vec3 offset, float scale) {
+    vec4 z = vec4(z0, 1.0);
+    for(int i = 0; i < 4; i++) {
+        z = abs(z);
+
+        if(z.x < z.y) z.xy = z.yx;
+        if(z.x < z.z) z.xz = z.zx;
+        if(z.y < z.z) z.yz = z.zy;
+
+        z *= scale;
+        z.xyz -= offset * (scale - 1.0);
+
+        if(z.z < -0.5 * offset.z * (scale - 1.0))
+            z.z += offset.z * (scale - 1.0);
+    }
+    return (length(max(abs(z.xyz) - 
+        vec3(1.0, 1.0, 1.0), 0.0)) - 0.05) / z.w;
 }
 
 // normalized blinn-phong shading
@@ -214,19 +233,20 @@ Object distanceFunc(vec3 p) {
     float bx = box(rotate(p, time, vec3(1., 0.75, .53)), .05);
     vec3 q = p;
     // q.xy = foldRotate(q.xy, 5.0);
-    q -= vec3(0.0, time, 0.0);
-    q = repeat(q, 8.);
-    q.xy = foldRotate(q.xy, 2.);
-    float dist = obj_menger(q).x;
-    float d = length(q - vec3(0.0, 0.0, 0.0));
-    vec3 col = vec3(1.) - mod(d + time, 3.0);
+    q -= vec3(0.0, 0.0, time * 0.8);
+    q = repeat(q, 5.);
+    float gam_menger = menger(q * .3, vec3(.79, 1.1, .47), 2.31);
+    q.yx = foldRotate(q.yx, 2.);
+    float dist = max(gam_menger,obj_menger(q).x);
+    float d = length(q - vec3(0.0, 0.0, q.z));
     vec3 bx_col = vec3(1., 0., 0.);
     Object obj;
     obj.dist = min(bx, dist);
-    // vec3 out_col = col * d * .1 + mod(-q.z * 0.05 - time, 2.0) * 0.3;
+    vec3 col = vec3(.05);// + mod(q.z * 0.2 + time * 1.5, 2.0) * 0.6;
     vec3 out_col = col;
+    // vec3 out_col = col;
     obj.color = bx < dist ? bx_col : out_col;
-    obj.edge = bx < dist ? bx_col : 1.0 - out_col;
+    obj.edge = bx < dist ? bx_col : vec3(.3, 1.5, 1.5);
     // obj.color = col;
     return obj;
 }
@@ -244,11 +264,12 @@ void main() {
     vec2 p = (gl_FragCoord.xy * 2.0 - resolution) / min(resolution.x, resolution.y);
 
     float t = mod(time, 6.0);
-    vec3 cPos = vec3(sin(time * .3) * .25, .1, cos(time * .5) * .25);
+    // vec3 cPos = vec3(sin(time * .5) * .5, .1, cos(time * .5) * .5);
+    vec3 cPos = vec3(0., 0., .3);
     vec3 cDir = normalize(-cPos);
     vec3 cUp = vec3(0.0, 1.0, 0.0);
     vec3 cSide = cross(cDir, cUp);
-    float targetDepth = .5;
+    float targetDepth = .3;
     
     vec3 ray = normalize(cSide * p.x + cUp * p.y + cDir * targetDepth);
 
@@ -264,20 +285,23 @@ void main() {
     
     if(obj.dist < 0.001) {
         vec3 normal = getNormal(rPos);
-        float eps = 0.01;// + mod(-rPos.z * 0.05 - time * 2., 2.0) * .02;
-        vec3 dif_x = getNormal(rPos + vec3(eps, 0.0, 0.0));
+        float eps = 0.001;
+        // float eps = 0.001;
+        vec3 dif_x = getNormal(rPos+ vec3(eps, 0.0, 0.0));
         vec3 dif_y = getNormal(rPos + vec3(0.0, eps, 0.0));
         vec3 dif_z = getNormal(rPos + vec3(0.0, 0.0, eps));
 
-        float max_dif = 0.9;
+        float max_dif = .99;
         if(abs(dot(normal, dif_x)) < max_dif ||
             abs(dot(normal, dif_y)) < max_dif || 
             abs(dot(normal, dif_z)) < max_dif) {
+                // obj.color = vec3(abs(dot(normal, dif_x)), abs(dot(normal, dif_y)), abs(dot(normal, dif_z)));
                 obj.color = obj.edge;
             }
         vec3 shaded_col = blinn_phong(abs(normal), lightDir, -cDir, obj.color);
         gl_FragColor = vec4(shaded_col, 1.0);
+        // gl_FragColor = vec4(rPos, 1.0);
     } else {
-        discard;
+        gl_FragColor = vec4(.5);
     }
 }
