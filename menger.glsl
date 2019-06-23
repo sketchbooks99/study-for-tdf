@@ -269,7 +269,7 @@ void main() {
     vec3 cDir = normalize(-cPos);
     vec3 cUp = vec3(0.0, 1.0, 0.0);
     vec3 cSide = cross(cDir, cUp);
-    float targetDepth = .3;
+    float targetDepth = 1.;
     
     vec3 ray = normalize(cSide * p.x + cUp * p.y + cDir * targetDepth);
 
@@ -281,9 +281,10 @@ void main() {
         obj = distanceFunc(rPos);
         rLen += obj.dist;
         rPos = cPos + ray * rLen;
+        if(obj.dist < 0.0001) break;
     }
     
-    if(obj.dist < 0.001) {
+    if(obj.dist < 0.0001) {
         vec3 normal = getNormal(rPos);
         float eps = 0.001;
         // float eps = 0.001;

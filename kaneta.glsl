@@ -6,6 +6,10 @@ const float PI2 = PI * 2.;
 
 const vec3 light_dir = vec3(.577, .577, -.577);
 
+vec3 repeat(in vec3 p, in float s) {
+    return mod(p, s) - 0.5 * s; 
+}
+
 mat2 rotate(float a) {
     float s = sin(a), c = cos(a);
     return mat2(c, s, -s, c);
@@ -39,8 +43,7 @@ float menger(vec3 z0, vec3 offset, float scale) {
 }
 
 float distanceFunc(vec3 p) {
-    p.yx = foldRotate(p.yx, 6.);
-    return menger(p, vec3(0.79, 1.1, 0.47), 2.31);
+    return menger(p, vec3(1., 1., 1.), 3.);
 }
 
 vec3 getNormal(vec3 p) {
@@ -55,18 +58,18 @@ vec3 getNormal(vec3 p) {
 void main() {
     vec2 p = (gl_FragCoord.xy * 2.0 -  resolution) / min(resolution.x, resolution.y);
 
-    vec3 cPos = vec3(0., 0., 3.);
+    vec3 cPos = vec3(0., 0., 4.);
     vec3 cDir = normalize(-cPos);
     vec3 cUp = vec3(0., 1., 0.);
     vec3 cSide = normalize(cross(cDir, cUp));
-    float targetDepth = 1.0;
+    float targetDepth = 1.;
 
     vec3 ray = normalize(cSide * p.x + cUp * p.y + cDir * targetDepth);
 
     vec3 rPos = cPos;
     float rLen;
     float distance = 0.0;
-    for (int i = 0; i < 128; i++) {
+    for (int i = 0; i < 64; i++) {
         distance = distanceFunc(rPos);
         rLen += distance;
         rPos = cPos + ray * rLen;
